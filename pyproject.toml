@@ -5,7 +5,12 @@ description = "Attempting to recreate the basic functionality of Dune in streaml
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "duckdb>=1.1.2",
-    "streamlit-code-editor>=0.1.21",
-    "streamlit>=1.39.0",
+    "duckdb~=1.1",
+    "streamlit-code-editor~=0.1.21",
+    "streamlit~=1.39",
+]
+
+[tool.uv]
+dev-dependencies = [
+  "black~=24.8",
 ]
