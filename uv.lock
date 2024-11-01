@@ -778,18 +778,6 @@ wheels = [
 ]
 
 [[package]]
-name = "streamlit-code-editor"
-version = "0.1.21"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "streamlit" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/be/98/a0848aefc2f1a5b4d29e4ad99add0f4fc2e3491dcb9b200ea8fb3c09a0dd/streamlit-code-editor-0.1.21.tar.gz", hash = "sha256:5a4d2a3644b1cc84415d94a5a4383804170d41bd553a2afdaabc4309341e3677", size = 3787572 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/63/b9/fa6b209a52c77665295ac4d7bebb0255cc3e09e716af11e18009829ff10d/streamlit_code_editor-0.1.21-py3-none-any.whl", hash = "sha256:8d4142b60c71d24a19d88f99cbb40213dd5818ebdddb4e1feeb8ff2c28cd0b7a", size = 4036044 },
-]
-
-[[package]]
 name = "streamlit-sql-testing"
 version = "0.1.0"
 source = { virtual = "." }
@@ -799,7 +787,6 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "streamlit" },
     { name = "streamlit-ace" },
-    { name = "streamlit-code-editor" },
 ]
 
 [package.dependency-groups]
@@ -811,10 +798,9 @@ dev = [
 requires-dist = [
     { name = "duckdb", specifier = "~=1.1" },
     { name = "minio", specifier = ">=7.2.10" },
-    { name = "python-dotenv", specifier = ">=1.0.1" },
+    { name = "python-dotenv", specifier = "~=1.0.1" },
     { name = "streamlit", specifier = "~=1.39" },
-    { name = "streamlit-ace", specifier = ">=0.1.1" },
-    { name = "streamlit-code-editor", specifier = "~=0.1.21" },
+    { name = "streamlit-ace", specifier = "~=0.1.1" },
 ]
 
 [package.metadata.dependency-groups]
