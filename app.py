@@ -5,6 +5,7 @@ import time
 from code_editor import code_editor
 from collections import deque
 from minio import Minio
+from streamlit_ace import st_ace
 
 from consts import (
     QUERY_CACHE_LEN,
@@ -78,6 +79,7 @@ def create_page(conn):
                 st.code(query.sql)
                 if st.button("Restore", key=f"restore_{query.id}"):
                     st.session_state["editor_value"] = str(query.sql)
+                    st.session_state["ace_key"] = f"sql_ace_{time.time()}"
                     st.rerun()
 
     st.divider()
@@ -88,39 +90,48 @@ def create_page(conn):
         st.session_state["editor_value"] = "SELECT * FROM test_data;"
     initial_value = st.session_state["editor_value"]
     st.write(f"Editor state SQL: {st.session_state['editor_value']}")
-    response = code_editor(
-        code=initial_value, lang="sql", key="editor"
-    )  # TODO: code_editor fails to update between runs. plz fix
+    ace_key = st.session_state.get("ace_key", "sql_ace")
+    response_text = st_ace(
+        value=initial_value,
+        language="sql",
+        theme="monokai",
+        key=ace_key,
+        height=400,
+        show_gutter=True,
+        show_print_margin=True,
+        wrap=True,
+        font_size=14,
+        tab_size=2,
+    )
 
-    st.session_state["editor_value"] = str(response["text"])
+    if response_text:
+        for query_string in response_text.split(";"):
+            if query_string.strip() == "":
+                continue
 
-    for query_string in response["text"].split(";"):
-        if query_string.strip() == "":
-            continue
+            query = Query.from_str(query_string + ";")
 
-        query = Query.from_str(query_string)
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                try:
+                    cur.execute(query.sql.preview())
+                    df = cur.fetch_df()
+                    query.preview = df
+                    st.write(df)
+                    st.session_state.query_history.append(query)
+                except Exception as e:
+                    st.error(e)
+                    query.status = "failed"
+                    query.error_message = str(e)
 
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            try:
-                cur.execute(query.sql.preview())
-                df = cur.fetch_df()
-                query.preview = df
-                st.write(df)
-                st.session_state.query_history.append(query)
-            except Exception as e:
-                st.error(e)
-                query.status = "failed"
-                query.error_message = str(e)
-
-        with col2:
-            if st.button("Run Full Query", key=f"run_{query.id}"):
-                with st.spinner("Running full query..."):
-                    try:
-                        # TODO: Implement the background job and email .csv functionality
-                        st.success("Query submitted! Results will be emailed to you.")
-                    except Exception as e:
-                        st.error(f"Failed to run query: {e}")
+            with col2:
+                if st.button("Run Full Query", key=f"run_{query.id}"):
+                    with st.spinner("Running full query..."):
+                        try:
+                            # TODO: Implement the background job and email .csv functionality
+                            st.success("Query submitted! Results will be emailed to you.")
+                        except Exception as e:
+                            st.error(f"Failed to run query: {e}")
 
     if st.button("Reset"):
         st.session_state.clear()
