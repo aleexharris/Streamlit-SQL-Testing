@@ -1,72 +1,137 @@
 import streamlit as st
 import duckdb
 import pandas as pd
-from dataclasses import dataclass
-import hashlib
 import time
 from code_editor import code_editor
+from collections import deque
+from minio import Minio
+
+from consts import (
+    QUERY_CACHE_LEN,
+    MINIO_HOST,
+    MINIO_PORT,
+    MINIO_ACCESS_KEY,
+    MINIO_SECRET_KEY,
+    LIVE,
+)
+from query import Query, Sql
 
 st.set_page_config(page_title="budgetdune")
 
 
-class Sql(str):
-    def preview(self) -> str:
-        query = self.strip().rstrip(';')
-        if query.upper().strip().endswith('LIMIT'):
-            query = query.rsplit('LIMIT', 1)[0].strip()
-        elif 'LIMIT' in query.upper():
-            query = query.rsplit('LIMIT', 1)[0].strip()
-        return f"{query}\nLIMIT 100;"
-
-
-@dataclass
-class Query:
-    ts: int
-    id: str
-    sql: Sql
-    preview: None | pd.DataFrame
-
-    def from_str(s: str):
-        ts = int(time.time())
-        id = hashlib.sha256(f"{ts}:{s}".encode()).hexdigest()
-        return Query(ts, id, Sql(s), None)
-
-
-def get_db_connection():
+def init_session_state():
+    if "query_history" not in st.session_state:
+        st.session_state.query_history = deque(maxlen=QUERY_CACHE_LEN)
     if "duck_conn" not in st.session_state:
-        st.session_state["duck_conn"] = duckdb.connect(":memory:")
-    return st.session_state["duck_conn"]
+        conn = duckdb.connect(":memory:")
+
+        if LIVE:
+            try:
+                minio_client = Minio(
+                    f"{MINIO_HOST}:{MINIO_PORT}",
+                    access_key=MINIO_ACCESS_KEY,
+                    secret_key=MINIO_SECRET_KEY,
+                    secure=False,
+                )
+                objects = minio_client.list_objects("processed")
+                for obj in objects:
+                    dataset_name = obj.object_name.split("/")[0]
+                    conn.execute(
+                        f"""
+                        CREATE TABLE IF NOT EXISTS {dataset_name} AS 
+                        SELECT * FROM read_parquet('s3://processed/{dataset_name}/*');
+                    """
+                    )
+            except Exception as e:
+                st.error(f"Failed to connect to Minio: {e}")
+        else:
+            conn.execute(
+                """
+                CREATE TABLE test_data AS 
+                SELECT * FROM (
+                    VALUES 
+                    (1, 'test1'),
+                    (2, 'test2'),
+                    (3, 'test3')
+                ) AS t(id, name);
+            """
+            )
+
+        st.session_state.duck_conn = conn
 
 
 def create_page(conn):
     st.title("Budget Dune Dashboard")
+
+    with st.sidebar:
+        st.header("Query History")
+        for query in reversed(st.session_state.query_history):
+            timestamp = time.strftime("%H:%M:%S", time.localtime(query.ts))
+            status_indicator = (
+                "🟢"
+                if query.status == "completed"
+                else "🔴" if query.status == "failed" else "🟠"
+            )
+            with st.expander(
+                f"{status_indicator} [{timestamp}] - ID: 0x{query.id[:3]}...{query.id[-3:]}"
+            ):
+                st.code(query.sql)
+                if st.button("Restore", key=f"restore_{query.id}"):
+                    st.session_state["editor_value"] = str(query.sql)
+                    st.rerun()
+
     st.divider()
     st.write("Press Ctrl + Enter to run a preview of your query.")
+
     cur = conn.cursor()
-    response = code_editor(code="SELECT * FROM dune;", lang="sql", key="editor")
+    if "editor_value" not in st.session_state:
+        st.session_state["editor_value"] = "SELECT * FROM test_data;"
+    initial_value = st.session_state["editor_value"]
+    st.write(f"Editor state SQL: {st.session_state['editor_value']}")
+    response = code_editor(
+        code=initial_value, lang="sql", key="editor"
+    )  # TODO: code_editor fails to update between runs. plz fix
+
+    st.session_state["editor_value"] = str(response["text"])
+
     for query_string in response["text"].split(";"):
         if query_string.strip() == "":
             continue
-        
+
         query = Query.from_str(query_string)
 
-        try:
-            cur.execute(query.sql.preview())
-            df = cur.fetch_df()
-            query.preview = df
-            st.write(df)
-        except Exception as e:
-            st.error(e)
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            try:
+                cur.execute(query.sql.preview())
+                df = cur.fetch_df()
+                query.preview = df
+                st.write(df)
+                st.session_state.query_history.append(query)
+            except Exception as e:
+                st.error(e)
+                query.status = "failed"
+                query.error_message = str(e)
+
+        with col2:
+            if st.button("Run Full Query", key=f"run_{query.id}"):
+                with st.spinner("Running full query..."):
+                    try:
+                        # TODO: Implement the background job and email .csv functionality
+                        st.success("Query submitted! Results will be emailed to you.")
+                    except Exception as e:
+                        st.error(f"Failed to run query: {e}")
 
     if st.button("Reset"):
-        st.cache_resource.clear()
-        st.session_state["editor"]["text"] = ""
+        st.session_state.clear()
         st.rerun()
 
 
 def main():
-    conn = get_db_connection()
+    init_session_state()
+    conn = st.session_state.duck_conn
     create_page(conn)
+
 
 if __name__ == "__main__":
     main()
